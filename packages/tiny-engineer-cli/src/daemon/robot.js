@@ -18,12 +18,14 @@ export function serialRequest(op, fields = {}, opts = {}) {
 /**
  * WAV play through the host daemon. The daemon reads the file and streams it.
  * SerialRobotClient runs only inside that process.
- * @param {{ path: string, name?: string, port?: string | null }} opts
+ * `cues`: voice cue file the daemon embeds as the `tecu` chunk (already checked).
+ * @param {{ path: string, cues?: string, name?: string, port?: string | null }} opts
  * @returns {Promise<Record<string, unknown>>}
  */
 export function serialPlay(opts) {
   return daemonPlay({
     path: opts.path,
+    cues: opts.cues,
     name: opts.name ?? "talking",
     port: opts.port ?? null,
   });

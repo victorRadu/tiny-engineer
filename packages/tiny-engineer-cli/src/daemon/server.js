@@ -216,7 +216,8 @@ export async function serveDaemon(opts) {
       if (method === "play") {
         assertPortAllowed();
         const port = typeof params.port === "string" ? params.port : null;
-        const body = await link.play(String(params.path ?? ""), String(params.name ?? "talking"), port);
+        const cues = typeof params.cues === "string" && params.cues ? params.cues : null;
+        const body = await link.play(String(params.path ?? ""), String(params.name ?? "talking"), port, cues);
         reactions.onPortOpened();
         writeState();
         send(socket, { id, result: { ok: true, body } });

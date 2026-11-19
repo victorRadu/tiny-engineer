@@ -19,6 +19,7 @@ import { runRules } from "./commands/rules.js";
 import { runWatch } from "./commands/watch.js";
 import { get as getIntegration, list as listIntegrations } from "./integrations/registry.js";
 import { validateAnimName, validatePlayAnimName } from "./robot/client.js";
+import { loadCueFile, withCueChunk } from "./robot/cues.js";
 import { formatRobotError, robotPlay, robotSetAnim } from "./robot/transport.js";
 import {
   parseAnimArgs,
@@ -73,6 +74,11 @@ Options (most commands):
                           Host transport (flag > TINY_ENGINEER_TRANSPORT > http)
   --port <path>           Serial port when transport is serial
   -q, --quiet, --silent   Suppress success/info lines; errors still print
+
+Play options:
+  --name <pose>           talking (default), typing, reading, thinking, waiting, none
+  --cues <file>           Voice cue file (default: <clip>.cues next to the WAV, if present)
+  --no-cues               Do not add a cue file (send the WAV as it is)
   -h, --help              Show this help
   -v, --version           Print version and exit
 
@@ -259,10 +265,22 @@ async function runPlay(out, argv, quietGlobal) {
     return;
   }
 
+  // Voice cues: checked here, so a bad file stops before anything is sent.
+  let cues = null;
+  try {
+    cues = loadCueFile(/** @type {string} */ (opts.wavPath), { cuesPath: opts.cues, noCues: opts.noCues });
+    if (cues) wav = withCueChunk(wav, cues.text);
+  } catch (err) {
+    localOut.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+    return;
+  }
+
   const pose = opts.name ?? "talking";
   const result = await robotPlay({
     wav,
     wavPath: opts.wavPath,
+    cuesPath: cues?.path,
     name: opts.name,
     url: opts.url,
     transport: opts.transport,
@@ -273,8 +291,9 @@ async function runPlay(out, argv, quietGlobal) {
     process.exitCode = 1;
     return;
   }
+  const cueNote = cues ? `, ${cues.count} cue${cues.count === 1 ? "" : "s"}` : "";
   localOut.ok(
-    `played ${basename(/** @type {string} */ (opts.wavPath))} (${pose}) → ${localOut.style.dim(result.target ?? "robot")}`,
+    `played ${basename(/** @type {string} */ (opts.wavPath))} (${pose}${cueNote}) → ${localOut.style.dim(result.target ?? "robot")}`,
   );
   process.exitCode = 0;
 }

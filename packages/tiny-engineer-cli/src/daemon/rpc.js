@@ -23,14 +23,19 @@ export async function daemonRobotRequest(op, fields = {}, opts = {}) {
 }
 
 /**
- * @param {{ path: string, name?: string, port?: string | null, configDir?: string }} opts
+ * @param {{ path: string, cues?: string, name?: string, port?: string | null, configDir?: string }} opts
  */
 export async function daemonPlay(opts) {
   const conn = await ensureDaemon({ configDir: opts.configDir, port: opts.port ?? null });
   try {
     const res = await conn.peer.request(
       "play",
-      { path: opts.path, name: opts.name ?? "talking", port: opts.port ?? null },
+      {
+        path: opts.path,
+        ...(opts.cues ? { cues: opts.cues } : {}),
+        name: opts.name ?? "talking",
+        port: opts.port ?? null,
+      },
       11 * 60 * 1000,
     );
     if (typeof res.error === "string") throw new Error(res.error);

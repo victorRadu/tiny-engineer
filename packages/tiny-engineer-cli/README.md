@@ -30,6 +30,8 @@ Cold `npx` can be slow: `setup` writes hook **`timeout` ≥ 30**. Prefer registr
 
 Full flag list: `tiny-engineer --help` and `tiny-engineer daemon --help`.
 
+`play clip.wav` also sends `clip.cues` (when it is next to the WAV) as timed voice cues: moves, eye cues and pose changes. `--cues <file>` picks another file, `--no-cues` sends the WAV as it is (cues already inside the WAV still play). Format: [voice cues](https://github.com/jamro/tiny-engineer/blob/main/docs/api.md#voice-cues). After an update, `tiny-engineer daemon restart` so serial play uses the new daemon.
+
 Serial commands auto-start a host **daemon** (local socket) unless disabled or the port is yielded. HTTP `anim` / hooks do not use the daemon. Event rules (`rules add|list|remove`) run a host program when the robot emits an event — see the integration guide.
 
 ## Config

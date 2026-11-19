@@ -123,6 +123,8 @@ export function parseCommonArgs(argv, options = {}) {
  * @returns {{
  *   wavPath?: string,
  *   name?: string,
+ *   cues?: string,
+ *   noCues?: boolean,
  *   url?: string,
  *   transport?: string,
  *   port?: string,
@@ -134,6 +136,8 @@ export function parsePlayArgs(argv) {
   /** @type {{
    *   wavPath?: string,
    *   name?: string,
+   *   cues?: string,
+   *   noCues?: boolean,
    *   url?: string,
    *   transport?: string,
    *   port?: string,
@@ -148,10 +152,27 @@ export function parsePlayArgs(argv) {
       opts.quiet = true;
       continue;
     }
+    if (arg === "--no-cues") {
+      opts.noCues = true;
+      continue;
+    }
+    if (arg === "--cues") {
+      // A cue file name may start with "-"; only a missing value or another
+      // long flag counts as "no value".
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) return { quiet: opts.quiet, error: "--cues requires a value" };
+      opts.cues = value;
+      continue;
+    }
     if (arg === "--name" || arg === "--url" || arg === "--transport" || arg === "--port") {
       const value = argv[++i];
       if (!value || value.startsWith("-")) return { quiet: opts.quiet, error: `${arg} requires a value` };
       opts[/** @type {"name"|"url"|"transport"|"port"} */ (arg.slice(2))] = value;
+      continue;
+    }
+    if (arg.startsWith("--cues=")) {
+      opts.cues = arg.slice("--cues=".length);
+      if (!opts.cues) return { quiet: opts.quiet, error: "--cues requires a value" };
       continue;
     }
     if (arg.startsWith("--url=")) {
@@ -181,6 +202,7 @@ export function parsePlayArgs(argv) {
   }
 
   if (!opts.wavPath) return { quiet: opts.quiet, error: "play needs a WAV file" };
+  if (opts.cues && opts.noCues) return { quiet: opts.quiet, error: "use --cues or --no-cues, not both" };
   return opts;
 }
 

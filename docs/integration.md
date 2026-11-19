@@ -119,6 +119,24 @@ tiny-engineer play /tmp/clip.wav --name thinking
 
 WAV for `/play`: 16-bit mono PCM at 22050 Hz. Details: [`api.md#post-play`](api.md#post-play).
 
+**Voice cues.** Put a `clip.cues` file next to `clip.wav` to time moves, eye cues and pose changes to the words, like the `.cue` files of the stock clips. `play` checks it and sends it with the audio (HTTP and serial). Grammar and actions: [`api.md#voice-cues`](api.md#voice-cues).
+
+```text
+# clip.cues
+0=mood grin
+300=move hand_right=0.7 ease=250 hold=600
+1200=look left hold=500
+1800=pose thinking
+```
+
+```bash
+tiny-engineer play clip.wav                       # uses clip.cues when it exists
+tiny-engineer play clip.wav --cues other.cues     # another cue file
+tiny-engineer play clip.wav --no-cues             # no cue file; WAV sent as it is
+```
+
+`--no-cues` only skips the cue file: a WAV that already holds a `tecu` chunk keeps its cues. A bad cue file stops the command with `file:line: reason` and sends nothing. The stock `.cue` phrase-mark files are never sent. Serial play adds the cues inside the daemon: after you update the CLI, run `tiny-engineer daemon restart` so an older daemon does not drop them.
+
 ### Speaking through the robot (skill)
 
 Install the shared [`tiny-engineer-play`](../skills/tiny-engineer-play/SKILL.md) skill (`curl` + `POST /play`). Same skill works in Claude Code, Cursor, and Antigravity:

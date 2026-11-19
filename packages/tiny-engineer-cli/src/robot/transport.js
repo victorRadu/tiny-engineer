@@ -60,7 +60,7 @@ export async function robotSetAnim(name, opts = {}) {
 }
 
 /**
- * @param {{ wav: Uint8Array, wavPath?: string, name?: string } & TransportOpts} opts
+ * @param {{ wav: Uint8Array, wavPath?: string, cuesPath?: string, name?: string } & TransportOpts} opts
  * @returns {Promise<import("./client.js").RobotResult & { target?: string }>}
  */
 export async function robotPlay(opts) {
@@ -72,6 +72,7 @@ export async function robotPlay(opts) {
       try {
         const body = await serialPlay({
           path: resolve(opts.wavPath),
+          cues: opts.cuesPath ? resolve(opts.cuesPath) : undefined,
           name: opts.name ?? "talking",
           port: opts.port ?? null,
         });

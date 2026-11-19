@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { withCueChunk } from "../robot/cues.js";
 import { hostCalloutPath } from "../robot/serial/client.js";
 
 /**
@@ -191,12 +192,14 @@ export function createSerialLink({ connect, preferredPort = null }) {
      * @param {string} wavPath
      * @param {string} name
      * @param {string | null | undefined} port
+     * @param {string | null} [cuesPath] voice cue file, embedded as the `tecu` chunk
      */
-    async play(wavPath, name, port) {
+    async play(wavPath, name, port, cuesPath = null) {
       const current = await ensure(port);
       playActive = true;
       try {
-        const wav = readFileSync(wavPath);
+        let wav = readFileSync(wavPath);
+        if (cuesPath) wav = withCueChunk(wav, readFileSync(cuesPath));
         return await current.client.play(wav, name);
       } finally {
         playActive = false;
