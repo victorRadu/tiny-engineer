@@ -1,0 +1,4 @@
+#!/bin/sh
+# Checks a voice cue file. See check.mjs for usage.
+dir=$(cd "$(dirname "$0")" && pwd -P)
+exec node "$dir/check.mjs" "$@"

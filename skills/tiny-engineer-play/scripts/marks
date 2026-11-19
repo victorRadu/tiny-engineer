@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Lists the speech parts of a WAV in milliseconds, to time voice cues.
+# Usage: marks <clip.wav> [noise_db] [min_silence_s]
+#   noise_db       silence threshold, default -35 (use -30 for a noisy clip)
+#   min_silence_s  shortest pause that splits two parts, default 0.25
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "usage: marks <clip.wav> [noise_db] [min_silence_s]" >&2
+  exit 1
+fi
+if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+  echo "marks needs ffmpeg and ffprobe" >&2
+  exit 1
+fi
+
+clip="$1"
+noise="${2:--35}"
+gap="${3:-0.25}"
+
+duration=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$clip")
+
+ffmpeg -hide_banner -nostats -i "$clip" -af "silencedetect=noise=${noise}dB:d=${gap}" -f null - 2>&1 |
+  awk -v dur="$duration" '
+    /silence_start:/ { for (i = 1; i <= NF; i++) if ($i == "silence_start:") s[++ns] = $(i + 1) }
+    /silence_end:/   { for (i = 1; i <= NF; i++) if ($i == "silence_end:")   e[++ne] = $(i + 1) }
+    END {
+      printf "duration_ms=%d\n", dur * 1000
+      # Speech runs from the end of one silence to the start of the next.
+      start = 0
+      if (ns > 0 && s[1] <= 0.01) { start = e[1]; first = 2 } else { first = 1 }
+      n = 0
+      for (k = first; k <= ns; k++) {
+        if (s[k] > start) printf "speech %d: %d-%d ms\n", ++n, start * 1000, s[k] * 1000
+        start = (k <= ne) ? e[k] : dur
+      }
+      if (start < dur - 0.05) printf "speech %d: %d-%d ms\n", ++n, start * 1000, dur * 1000
+    }'

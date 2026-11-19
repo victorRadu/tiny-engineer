@@ -1,6 +1,6 @@
 ---
 name: tiny-engineer-play
-description: Make the Tiny Engineer desk robot say something out loud through its speaker while it gestures, via POST /play. Use whenever the user asks the robot to speak, announce or celebrate a result, greet them, or "tell me through the robot", and when debugging /play errors such as 415 "expected 16-bit mono PCM" or 400 "name must be ...".
+description: Make the Tiny Engineer desk robot say something out loud through its speaker while it gestures, via POST /play. Use whenever the user asks the robot to speak, announce or celebrate a result, greet them, or "tell me through the robot", when the user wants gestures timed to a clip (a `.cues` file), and when debugging /play errors such as 415 "expected 16-bit mono PCM", 400 "name must be ..." or "bad cue line N: ...".
 ---
 
 # Tiny Engineer: speak through the robot
@@ -25,6 +25,8 @@ Keep clips short (a few seconds up to about 20 s): the robot handles one request
 <this skill's base directory>/scripts/play /tmp/te-clip.wav            # robot runs "talking"
 <this skill's base directory>/scripts/play /tmp/te-clip.wav thinking   # or typing, reading, none
 ```
+
+To make the robot move, look or change pose at exact times in the clip, write a `<clip>.cues` file: read [cues.md](cues.md) first.
 
 It reads `TINY_ENGINEER_URL` (default `http://tiny-engineer.local`) and `TINY_ENGINEER_TOKEN` from the environment, prints the robot's JSON reply when the clip ends, and exits 1 with the reason on any error. It needs `curl`.
 

@@ -119,7 +119,7 @@ tiny-engineer play /tmp/clip.wav --name thinking
 
 WAV for `/play`: 16-bit mono PCM at 22050 Hz. Details: [`api.md#post-play`](api.md#post-play).
 
-**Voice cues.** Put a `clip.cues` file next to `clip.wav` to time moves, eye cues and pose changes to the words, like the `.cue` files of the stock clips. `play` checks it and sends it with the audio (HTTP and serial). Grammar and actions: [`api.md#voice-cues`](api.md#voice-cues).
+**Voice cues.** Agents can write cue files with the shared [`tiny-engineer-play`](../skills/tiny-engineer-play/SKILL.md) skill below (cue rules in its [`cues.md`](../skills/tiny-engineer-play/cues.md)). Put a `clip.cues` file next to `clip.wav` to time moves, eye cues and pose changes to the words, like the `.cue` files of the stock clips. `play` checks it and sends it with the audio (HTTP and serial). Grammar and actions: [`api.md#voice-cues`](api.md#voice-cues).
 
 ```text
 # clip.cues

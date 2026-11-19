@@ -16,6 +16,9 @@ const fixturePath = join(repoRoot, "test", "fixtures", "stream_cues.txt");
 const kawaiiPath = join(repoRoot, "src", "display", "eyes", "styles", "kawaii", "expression.cpp");
 const apiDocPath = join(repoRoot, "docs", "api.md");
 const integrationDocPath = join(repoRoot, "docs", "integration.md");
+const cueSkillPath = join(repoRoot, "skills", "tiny-engineer-play", "cues.md");
+const skillParserPath = join(repoRoot, "skills", "tiny-engineer-play", "scripts", "cues.mjs");
+const cliParserPath = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "robot", "cues.js");
 
 /**
  * @returns {{ name: string, text: string, ok: boolean, count: number, expected: string[], error: string }[]}
@@ -109,6 +112,27 @@ test("example cue file in docs/integration.md is valid", { skip: !existsSync(int
   const block = /```text\n(# clip\.cues[\s\S]*?)```/.exec(doc);
   assert.ok(block, "docs/integration.md has the clip.cues example");
   assert.equal(parseCues(block[1]).length, 4);
+});
+
+test("play skill parser copy is identical to src/robot/cues.js", { skip: !existsSync(skillParserPath) }, () => {
+  assert.ok(
+    readFileSync(skillParserPath).equals(readFileSync(cliParserPath)),
+    "skills/tiny-engineer-play/scripts/cues.mjs differs: copy packages/tiny-engineer-cli/src/robot/cues.js over it",
+  );
+});
+
+test("example cue file in the play skill cues.md is valid", { skip: !existsSync(cueSkillPath) }, () => {
+  const doc = readFileSync(cueSkillPath, "utf8");
+  const block = /```text\n(# morning\.cues[\s\S]*?)```/.exec(doc);
+  assert.ok(block, "cues.md has the morning.cues example");
+  assert.equal(parseCues(block[1]).length, 9);
+});
+
+test("play skill cues.md lists every kawaii mood a cue accepts", { skip: !existsSync(cueSkillPath) }, () => {
+  const doc = readFileSync(cueSkillPath, "utf8");
+  for (const mood of KAWAII_MOODS.filter((name) => name !== "asleep")) {
+    assert.ok(doc.includes(`\`${mood}\``), `cues.md lists mood ${mood}`);
+  }
 });
 
 /**
