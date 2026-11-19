@@ -438,6 +438,9 @@ bool i2cServoDriverUp() {
 void i2cNoteServoDriverFault(const char* cause) {
   const uint32_t now = millis();
 
+  // Safety code owns the joints from here; no voice cue may hold one.
+  servoCancelCues();
+
   if (g_servoDriver.tracker.noteFault(now)) {
     enterFault(g_servoDriver, now, cause);
   }

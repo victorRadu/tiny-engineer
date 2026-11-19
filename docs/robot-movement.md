@@ -24,4 +24,8 @@ curl -X POST "http://tiny-engineer.local/test/servo" -H "Content-Type: applicati
 
 Use angles inside the saved safe range on the assembled robot. During setup AP, `POST /setup/servo` can command the full 0–180° electrical range so you can find those limits.
 
+## Voice cue moves
+
+A streamed clip can carry `move` cues ([api.md](api.md#voice-cues)). They use the same −1..1 units, so `hand_right=1` is the right hand up and `hand_left=-1` is the left hand up (opposite scales, as above). `neck=1` turns the head to the robot's left, `body=1` turns the torso to its left, `head=1` is face up. The cue holds only the joints it names: the running animation keeps moving all other joints. When the hold ends, the joint goes back to the last target the animation asked for, at the animation's own speed. A very short `ease` is capped at the servo top speed, so the joint never jumps. Park and a servo driver fault end every hold at once.
+
 Related: [servos.md](hardware/servos.md) (PWM and electrical limits), [api.md](api.md) (`/test/servo`, `/anim`).

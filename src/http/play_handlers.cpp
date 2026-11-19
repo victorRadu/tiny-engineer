@@ -3,9 +3,9 @@
 #include <optional>
 
 #include "animation.h"
+#include "animation/play_cues.h"
 #include "api/busy.h"
 #include "audio/audio.h"
-#include "audio/audio_motion.h"
 #include "audio/wav_parser.h"
 #include "extensions/push_button/push_button.h"
 #include "http/access.h"
@@ -54,6 +54,8 @@ public:
     }
 
     stopAllWavPlayback();
+    // Shared with serial play: reset only once this session holds the busy lock.
+    cues_.reset();
     parser_.emplace(SAMPLE_RATE, *this);
     serialLogPrintln("[play] start");
   }
@@ -75,9 +77,7 @@ public:
     serialLogPrintln(playedMs());
 
     if (started_) {
-      if (animation_ == AnimationId::Talking) {
-        audioMotionEnd(millis());
-      }
+      cues_.end(millis());
       setAnimationImmediately(animationIsContinuous(previous_) ? previous_ : AnimationId::None);
     }
     releaseBusy_();
@@ -86,6 +86,11 @@ public:
   void respond(WebServer& server) {
     if (refusal_) {
       refusal_->send(server);
+      return;
+    }
+
+    if (cues_.failed()) {
+      sendError(server, 400, cues_.error());
       return;
     }
 
@@ -100,22 +105,28 @@ public:
     sendJson(server, 200, body);
   }
 
+  void onChunkBegin(uint32_t size) override { cues_.onChunkBegin(size); }
+  void onChunkData(const uint8_t* bytes, size_t length) override { cues_.onChunkData(bytes, length); }
+  void onChunkEnd() override { cues_.onChunkEnd(); }
+
   void onPcm(const int16_t* samples, size_t count) override {
+    // A bad cue list rejects the clip: no sound, no motion.
+    if (cues_.failed()) {
+      return;
+    }
+
     const uint32_t now = millis();
 
     if (!started_) {
       // The format is known good by now, so the robot only moves for clips it can play.
       started_ = true;
       previous_ = getAnimation();
-      if (animation_ == AnimationId::Talking) {
-        audioMotionBegin(now);
-      }
       setAnimationImmediately(animation_);
+      cues_.start(now);
     }
 
-    if (animation_ == AnimationId::Talking) {
-      audioMotionFeed(samples, count, now);
-    }
+    // samplesDelivered() already counts this batch.
+    cues_.beforeBatch(samples, count, parser_->samplesDelivered(), SAMPLE_RATE, now);
 
     writeMonoToSpeaker(samples, count);
     noteActivity(now);
@@ -125,6 +136,7 @@ public:
 
 private:
   std::optional<WavStreamParser> parser_;
+  PlayCues cues_;
   AnimationId animation_ = AnimationId::Talking;
   AnimationId previous_ = AnimationId::None;
   bool started_ = false;

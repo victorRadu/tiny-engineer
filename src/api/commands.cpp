@@ -134,6 +134,7 @@ ApiResult apiParkServos() {
   }
 
   setAnimationImmediately(AnimationId::None);
+  servoCancelCues();
   ensureAllServoOutputs();
   centerAllServos();
 

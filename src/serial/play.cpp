@@ -4,9 +4,9 @@
 #include <optional>
 
 #include "animation.h"
+#include "animation/play_cues.h"
 #include "api/busy.h"
 #include "audio/audio.h"
-#include "audio/audio_motion.h"
 #include "audio/wav_parser.h"
 #include "pins.h"
 #include "robot_tick.h"
@@ -39,6 +39,7 @@ public:
     }
 
     stopAllWavPlayback();
+    cues_.reset();
     parser_.emplace(SAMPLE_RATE, *this);
     streamId_ = nextStreamId_++;
     if (nextStreamId_ == 0) {
@@ -72,6 +73,12 @@ public:
     }
     credits_ = 0;
     parser_->feed(data, length);
+    if (cues_.failed()) {
+      error = cues_.error();
+      creditsOut = 0;
+      abort_();
+      return false;
+    }
     if (parser_->failed()) {
       error = parser_->error() != nullptr ? parser_->error() : "wav parse failed";
       creditsOut = 0;
@@ -91,7 +98,10 @@ public:
     }
     if (parser_) {
       parser_->finish();
-      if (parser_->failed()) {
+      if (cues_.failed()) {
+        error = cues_.error();
+        failed_ = true;
+      } else if (parser_->failed()) {
         error = parser_->error();
         failed_ = true;
       } else {
@@ -113,19 +123,24 @@ public:
   uint16_t credits() const { return credits_; }
   bool active() const { return active_; }
 
+  void onChunkBegin(uint32_t size) override { cues_.onChunkBegin(size); }
+  void onChunkData(const uint8_t* bytes, size_t length) override { cues_.onChunkData(bytes, length); }
+  void onChunkEnd() override { cues_.onChunkEnd(); }
+
   void onPcm(const int16_t* samples, size_t count) override {
+    // A bad cue list rejects the clip: no sound, no motion.
+    if (cues_.failed()) {
+      return;
+    }
     const uint32_t now = millis();
     if (!started_) {
       started_ = true;
       previous_ = getAnimation();
-      if (animation_ == AnimationId::Talking) {
-        audioMotionBegin(now);
-      }
       setAnimationImmediately(animation_);
+      cues_.start(now);
     }
-    if (animation_ == AnimationId::Talking) {
-      audioMotionFeed(samples, count, now);
-    }
+    // samplesDelivered() already counts this batch.
+    cues_.beforeBatch(samples, count, parser_->samplesDelivered(), SAMPLE_RATE, now);
     writeMonoToSpeaker(samples, count);
     noteActivity(now);
     tickRobot();
@@ -136,9 +151,7 @@ private:
     if (!started_) {
       return;
     }
-    if (animation_ == AnimationId::Talking) {
-      audioMotionEnd(millis());
-    }
+    cues_.end(millis());
     setAnimationImmediately(animationIsContinuous(previous_) ? previous_ : AnimationId::None);
     started_ = false;
   }
@@ -159,6 +172,7 @@ private:
   }
 
   std::optional<WavStreamParser> parser_;
+  PlayCues cues_;
   AnimationId animation_ = AnimationId::Talking;
   AnimationId previous_ = AnimationId::None;
   uint8_t streamId_ = 0;

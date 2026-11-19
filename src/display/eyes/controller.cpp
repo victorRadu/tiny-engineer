@@ -14,6 +14,7 @@
 #include "display/eyes/core/impact.h"
 #include "display/eyes/core/internal.h"
 #include "display/eyes/core/util.h"
+#include "display/eyes/cue.h"
 #include "display/eyes/styles/eye_style.h"
 #include "display/eyes/styles/kaomoji.h"
 #include "settings/settings.h"
@@ -67,6 +68,19 @@ void updateModePose(uint32_t now) {
 
 void drawCurrentEyes(uint32_t now) {
   const EyeStyleRenderer* style = currentEyeStyle();
+
+  // A voice cue look shifts the drawn eyes only; the mode keeps its own pose.
+  int16_t dx = 0;
+  int16_t dy = 0;
+  const bool looking = eyesCueLookOffset(now, dx, dy);
+
+  if (looking) {
+    g_leftEye.x += dx;
+    g_rightEye.x += dx;
+    g_leftEye.y += dy;
+    g_rightEye.y += dy;
+  }
+
   style->draw(
     g_eyeMode,
     getAnimation(),
@@ -74,6 +88,13 @@ void drawCurrentEyes(uint32_t now) {
     now,
     currentSleepPhase()
   );
+
+  if (looking) {
+    g_leftEye.x -= dx;
+    g_rightEye.x -= dx;
+    g_leftEye.y -= dy;
+    g_rightEye.y -= dy;
+  }
 }
 
 bool advanceSleepEyeAnim(uint32_t now) {

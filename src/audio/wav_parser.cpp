@@ -65,6 +65,17 @@ void WavStreamParser::feed(const uint8_t* bytes, size_t length) {
         chunkRemaining_ -= used;
         break;
 
+      case State::Forward:
+        if (chunkRemaining_ == 0) {
+          sink_.onChunkEnd();
+          endChunk();
+          break;
+        }
+        used = length < chunkRemaining_ ? length : chunkRemaining_;
+        sink_.onChunkData(bytes, used);
+        chunkRemaining_ -= used;
+        break;
+
       case State::Pcm:
         used = consumePcm(bytes, length);
         break;
@@ -141,6 +152,13 @@ void WavStreamParser::beginChunk() {
   }
 
   chunkRemaining_ = size;
+
+  if (memcmp(header_, kCueChunkId, 4) == 0) {
+    sink_.onChunkBegin(size);
+    state_ = State::Forward;
+    return;
+  }
+
   state_ = State::Skip;
 }
 

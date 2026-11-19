@@ -819,7 +819,7 @@ Streams a WAV to the speaker while one animation runs, then returns to the conti
 | Part | Value |
 | --- | --- |
 | Path | `/play` runs `talking`; `/play/{name}` runs `talking`, `typing`, `reading`, `thinking`, `waiting`, or `none`. Animations with their own sound are rejected so two clips never overlap |
-| Body | WAV, 16-bit mono PCM at 22050 Hz (the firmware `SAMPLE_RATE`). `Content-Length` is required. Chunks other than `fmt ` and `data` are skipped |
+| Body | WAV, 16-bit mono PCM at 22050 Hz (the firmware `SAMPLE_RATE`). `Content-Length` is required. An optional `tecu` chunk before `data` holds [voice cues](#voice-cues). Other chunks besides `fmt ` and `data` are skipped |
 | `Authorization` | `Bearer <token>` when `access_token` is set |
 
 The animation starts with the first audio sample, so a rejected request never moves the robot. While the clip plays the robot keeps its eyes, LED and sleep timer running, and the clip counts as activity. When the pose is `talking`, the firmware derives speech energy from the streamed PCM and drives reactive head/hand/eye motion; other poses ignore audio for motion.
@@ -833,7 +833,7 @@ curl -X POST http://tiny-engineer.local/play/thinking -H 'Content-Type: audio/wa
 { "ok": true, "played_ms": 3000 }
 ```
 
-The unified CLI wraps this for agents: `tiny-engineer play clip.wav [--name thinking]` ([integration.md](integration.md#1-unified-cli-default)).
+The unified CLI wraps this for agents: `tiny-engineer play clip.wav [--name thinking]` ([integration.md](integration.md#1-unified-cli-default)). It sends `clip.cues` as [voice cues](#voice-cues) when that file is next to the WAV.
 
 Errors arrive before any audio plays:
 
@@ -842,12 +842,50 @@ Errors arrive before any audio plays:
 | `400` | `name must be talking, typing, reading, thinking, waiting or none` | `{name}` is unknown or has its own sound |
 | `415` | `expected 16-bit mono PCM at 22050 Hz` | WAV format or sample rate differs |
 | `415` | `not a WAV file`, `no audio data` | Body is not a RIFF/WAVE file, or has no `data` chunk |
+| `400` | `bad cue line <n>: <reason>` | The `tecu` chunk breaks a [voice cue](#voice-cues) rule. `<n>` is the 1-based line in the chunk, `0` for the size and count limits |
+
+#### Voice cues
+
+A clip can carry timed moves, eye cues and pose changes, like the `.cue` phrase marks of the stock clips. Put the cue list (UTF-8 text) in a RIFF chunk with ID `tecu` **before** the `data` chunk. A `tecu` chunk after `data` is skipped. A body with no `tecu` chunk plays as before. The serial `play` op reads the same chunk. The CLI builds it from a `<clip>.cues` file next to the WAV.
+
+One cue per line: `<ms>=<action> [key=value ...]`. `<ms>` is a whole number 0..600000: milliseconds from the first audio sample. Cues start on the audio clock, so a slow network does not move them. Times must not go down from one line to the next; equal times are fine. Text after `#` is a comment. Limits: 64 cues, 120 bytes per line, 8192 bytes per chunk.
+
+| Action | Arguments | Effect |
+|--------|-----------|--------|
+| `move` | `<joint>=<value> ...` `ease=<ms>` `hold=<ms>` | Joints `head`, `neck`, `body`, `hand_left`, `hand_right`; value −1..1 in pose units ([robot-movement.md](robot-movement.md#voice-cue-moves)). `ease` 0..10000 (default `300`) is the travel time; `hold` 0..60000 (default `500`) is the time at the target. Then the running animation takes the joint back |
+| `blink` | none | One blink |
+| `look` | `left` \| `right` \| `up` \| `down` \| `center`, `hold=<ms>` | Eyes look that way on the screen (`hold` default `800`). Classic, cover, dots and kawaii eyes; kaomoji ignores it |
+| `mood` | kawaii mood name or `auto`, `hold=<ms>` | Kawaii face mood (`hold` default `0`). `auto` gives the mood back to the animation. Names: `content`, `smile`, `grin`, `wink_left`, `wink_right`, `excited`, `love`, `focused`, `reading`, `thinking`, `surprised`, `curious`, `angry`, `panic`, `sleepy`, `sad`, `dizzy`, `talking`, `pleased`, `aha`, `suspense`, `yell`, `bliss`, `afterglow`. Other eye styles ignore it. While the pose is `talking`, the mouth still follows the audio |
+| `pose` | `talking` \| `typing` \| `reading` \| `thinking` \| `waiting` \| `none` | Switch the running animation. Speech-energy motion runs while the pose is `talking`. After the clip the robot still goes back to the animation from before the request |
+
+`hold=0` keeps a joint, look or mood until a later cue for the same joint (or a later `look` / `mood`) or the clip end. A cue moves only what it names: speech-energy motion and the pose's own motion go on for every other joint. When the clip ends, all holds end.
+
+```text
+# hello.cues — "Hello! Let me think about that."
+0=mood grin
+300=move hand_right=0.7 ease=250 hold=600
+1200=look left hold=500
+1250=blink
+1800=pose thinking
+```
+
+| Error reason | When |
+|--------------|------|
+| `bad time` | `<ms>` is not a whole number 0..600000 |
+| `expected <ms>=<action>` | No `=` or no action |
+| `time goes back` | Time lower than the line before |
+| `unknown action`, `unknown joint`, `unknown direction`, `unknown mood`, `unknown pose`, `unknown key` | Name not in the table above (`asleep` is not a cue mood) |
+| `repeated joint`, `repeated key` | Same joint or key twice on one line |
+| `bad value`, `bad ease`, `bad hold` | Number format or range wrong (no exponents) |
+| `move needs a joint`, `missing argument`, `extra argument` | Wrong argument count |
+| `line too long`, `too many cues`, `cue chunk too big` | Limits above |
+| `bad character` | A NUL byte in a line |
 
 ## Errors
 
 | Status | Body | When |
 | --- | --- | --- |
-| `400` | `{"ok":false,"error":"..."}` | Bad body or fields on `/settings`, `/settings/wifi`, `/test/servo` or `/setup/*`, or bad `/anim` or `/play` params (see tables above) |
+| `400` | `{"ok":false,"error":"..."}` | Bad body or fields on `/settings`, `/settings/wifi`, `/test/servo` or `/setup/*`, bad `/anim` or `/play` params, or a bad `/play` voice cue chunk (see tables above) |
 | `401` | `{"ok":false,"error":"unauthorized"}` | Access token configured and `Authorization: Bearer` missing or wrong |
 | `404` | `{"ok":false,"error":"not found"}` | Unknown path |
 | `415` | `{"ok":false,"error":"..."}` | `/play` body is not a supported WAV |

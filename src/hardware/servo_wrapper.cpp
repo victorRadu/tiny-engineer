@@ -47,6 +47,10 @@ static uint32_t g_poseDirtySinceMs = 0;
 static uint8_t g_lastSavedPose[SERVO_COUNT] = {};
 static bool g_lastSavedPoseValid = false;
 
+// Set by park and a servo driver fault: no voice cue may hold a joint until
+// the next clip starts (servoAllowCues()).
+bool g_cuesBlocked = false;
+
 ServoWrapper g_servos[SERVO_COUNT] = {
   ServoWrapper(SERVO_HEAD),
   ServoWrapper(SERVO_NECK),
@@ -463,16 +467,39 @@ float ServoWrapper::angle() const {
 
 void ServoWrapper::setTarget(float target, float speedDegS) {
   ensureServoOutput();
-  target_ = clampServoAngle(index_, target);
-  speedDegS_ = constrain(
-    speedDegS,
-    0.0f,
-    SERVO_MAX_SPEED_DEG_S
-  );
+  target = clampServoAngle(index_, target);
+  speedDegS = constrain(speedDegS, 0.0f, SERVO_MAX_SPEED_DEG_S);
+
+  if (cueHeld_) {
+    shadowTarget_ = target;
+    shadowSpeedDegS_ = speedDegS;
+    return;
+  }
+
+  // The animation steps its own targets, so a return in progress ends here.
+  cueReturning_ = false;
+  target_ = target;
+  speedDegS_ = speedDegS;
 }
 
 void ServoWrapper::setPosition(float angle) {
   angle = clampServoAngle(index_, angle);
+
+  if (cueHeld_) {
+    shadowTarget_ = angle;
+    shadowSpeedDegS_ = kCueReturnSpeedDegS;
+    return;
+  }
+
+  if (cueReturning_) {
+    // The animation writes positions (thinking, waiting look): chase them at a
+    // servo-safe speed instead of jumping from where the cue left the joint.
+    target_ = angle;
+    speedDegS_ = kCueReturnSpeedDegS;
+    update();
+    return;
+  }
+
   writeAngle(angle, false, false);
   target_ = angle_;
   lastUpdateMs_ = 0;
@@ -495,7 +522,104 @@ void ServoWrapper::setNormPosition(float n) {
 }
 
 void ServoWrapper::stop() {
+  if (cueHeld_) {
+    // The joint goes back to the animation's last target after the hold.
+    return;
+  }
+
+  cueReturning_ = false;
   target_ = angle_;
+}
+
+void ServoWrapper::cueMove(float normTarget, uint32_t easeMs, uint32_t holdMs, uint32_t nowMs) {
+  (void)nowMs;
+
+  if (g_cuesBlocked) {
+    return;
+  }
+
+  ensureServoOutput();
+
+  // Turning the output on can fail and fault the driver, which blocks cues.
+  if (g_cuesBlocked) {
+    return;
+  }
+
+  if (!cueHeld_) {
+    // The animation's last target (its rest pose when the joint is still) is
+    // where the joint goes back to, unless the animation asks for another.
+    shadowTarget_ = target_;
+    shadowSpeedDegS_ = speedDegS_;
+  }
+
+  const float target = clampServoAngle(index_, servoNormToDeg(index_, normTarget));
+  const float distance = fabsf(target - angle_);
+  float speed = SERVO_MAX_SPEED_DEG_S;
+
+  if (easeMs > 0) {
+    speed = distance / (static_cast<float>(easeMs) / 1000.0f);
+  }
+
+  if (!isMoving()) {
+    // A still joint may hold an old step time; start this move on a fresh
+    // clock. A moving joint keeps its clock, so quick cues do not stall it.
+    lastUpdateMs_ = 0;
+  }
+
+  target_ = target;
+  speedDegS_ = constrain(speed, 1.0f, SERVO_MAX_SPEED_DEG_S);
+  cueHeld_ = true;
+  cueReturning_ = false;
+  cueArrived_ = false;
+  cueUntilRelease_ = holdMs == 0;
+  cueHoldMs_ = holdMs;
+}
+
+void ServoWrapper::cueRelease() {
+  if (!cueHeld_) {
+    return;
+  }
+
+  cueHeld_ = false;
+  target_ = shadowTarget_;
+  speedDegS_ = shadowSpeedDegS_;
+  // The step clock may be as old as the hold; the return must not count it.
+  lastUpdateMs_ = 0;
+  cueReturning_ = isMoving();
+}
+
+void ServoWrapper::cueCheckRelease(uint32_t nowMs) {
+  if (!cueHeld_ || cueUntilRelease_) {
+    return;
+  }
+
+  // `hold` counts from arrival: a speed-capped move keeps its full hold.
+  if (!cueArrived_) {
+    if (isMoving()) {
+      return;
+    }
+    cueArrived_ = true;
+    cueUntilMs_ = nowMs + cueHoldMs_;
+  }
+
+  if (static_cast<int32_t>(nowMs - cueUntilMs_) >= 0) {
+    cueRelease();
+  }
+}
+
+void servoReleaseAllCues() {
+  for (int i = 0; i < SERVO_COUNT; i++) {
+    g_servos[i].cueRelease();
+  }
+}
+
+void servoCancelCues() {
+  g_cuesBlocked = true;
+  servoReleaseAllCues();
+}
+
+void servoAllowCues() {
+  g_cuesBlocked = false;
 }
 
 bool ServoWrapper::isMoving() const {
@@ -503,11 +627,14 @@ bool ServoWrapper::isMoving() const {
 }
 
 void ServoWrapper::update() {
+  const uint32_t now = millis();
+
+  cueCheckRelease(now);
+
   if (!isMoving()) {
+    cueReturning_ = false;
     return;
   }
-
-  const uint32_t now = millis();
 
   if (lastUpdateMs_ == 0) {
     lastUpdateMs_ = now;
@@ -653,6 +780,11 @@ void ServoWrapper::writeAngle(float angle, bool log, bool electrical) {
 }
 
 void ServoWrapper::snapTo(float angle) {
+  if (cueHeld_ || cueReturning_) {
+    setPosition(angle);
+    return;
+  }
+
   writeAngle(angle, true, false);
   target_ = angle_;
   lastUpdateMs_ = 0;

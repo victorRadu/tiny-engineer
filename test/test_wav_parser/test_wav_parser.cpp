@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "audio/wav_parser.h"
@@ -11,9 +12,29 @@ constexpr uint32_t kRate = 44100;
 
 struct CollectingSink : WavStreamParser::Sink {
   std::vector<int16_t> samples;
+  std::vector<uint8_t> cue;
+  int cueBegins = 0;
+  int cueEnds = 0;
+  uint32_t cueDeclared = 0;
+  // Samples already delivered when the cue chunk ended (-1 = never).
+  long samplesAtCueEnd = -1;
 
   void onPcm(const int16_t* data, size_t count) override {
     samples.insert(samples.end(), data, data + count);
+  }
+
+  void onChunkBegin(uint32_t size) override {
+    cueBegins++;
+    cueDeclared = size;
+  }
+
+  void onChunkData(const uint8_t* bytes, size_t length) override {
+    cue.insert(cue.end(), bytes, bytes + length);
+  }
+
+  void onChunkEnd() override {
+    cueEnds++;
+    samplesAtCueEnd = static_cast<long>(samples.size());
   }
 };
 
@@ -193,6 +214,57 @@ void test_body_without_data_chunk_fails() {
   TEST_ASSERT_EQUAL_STRING("no audio data", parser.error());
 }
 
+void test_forwards_cue_chunk_before_data() {
+  const std::vector<int16_t> samples = ramp(50);
+  const std::string text = "0=blink\n100=look left";  // odd length: padding byte
+  const std::vector<uint8_t> cue(text.begin(), text.end());
+
+  for (size_t slice : {1u, 3u, 64u}) {
+    std::vector<uint8_t> bytes = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E'};
+    appendChunk(bytes, "fmt ", fmtBody(1, kRate), 16);
+    appendChunk(bytes, "tecu", cue, cue.size());
+    const std::vector<uint8_t> pcm = pcmBytes(samples);
+    appendChunk(bytes, "data", pcm, pcm.size());
+
+    CollectingSink sink;
+    WavStreamParser parser(kRate, sink);
+    feedInSlices(parser, bytes, slice);
+
+    TEST_ASSERT_FALSE(parser.failed());
+    TEST_ASSERT_EQUAL(1, sink.cueBegins);
+    TEST_ASSERT_EQUAL(1, sink.cueEnds);
+    TEST_ASSERT_EQUAL_UINT32(cue.size(), sink.cueDeclared);
+    TEST_ASSERT_EQUAL_size_t(cue.size(), sink.cue.size());
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(cue.data(), sink.cue.data(), cue.size());
+    TEST_ASSERT_EQUAL(0, sink.samplesAtCueEnd);
+    TEST_ASSERT_EQUAL_INT16_ARRAY(samples.data(), sink.samples.data(), samples.size());
+  }
+}
+
+void test_cue_chunk_after_data_is_not_forwarded() {
+  const std::vector<int16_t> samples = ramp(8);
+  std::vector<uint8_t> bytes = wav(samples);
+  appendChunk(bytes, "tecu", {'0', '=', 'b'}, 3);
+
+  CollectingSink sink;
+  WavStreamParser parser(kRate, sink);
+  feedInSlices(parser, bytes, 5);
+
+  TEST_ASSERT_FALSE(parser.failed());
+  TEST_ASSERT_EQUAL(0, sink.cueBegins);
+  TEST_ASSERT_EQUAL_size_t(samples.size(), sink.samples.size());
+}
+
+void test_no_cue_chunk_calls_no_cue_hooks() {
+  CollectingSink sink;
+  WavStreamParser parser(kRate, sink);
+  feedInSlices(parser, wav(ramp(20)), 7);
+
+  TEST_ASSERT_FALSE(parser.failed());
+  TEST_ASSERT_EQUAL(0, sink.cueBegins);
+  TEST_ASSERT_EQUAL(0, sink.cueEnds);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_delivers_samples_regardless_of_slicing);
@@ -204,5 +276,8 @@ int main(int, char**) {
   RUN_TEST(test_rejects_non_wav);
   RUN_TEST(test_body_shorter_than_header_is_not_wav);
   RUN_TEST(test_body_without_data_chunk_fails);
+  RUN_TEST(test_forwards_cue_chunk_before_data);
+  RUN_TEST(test_cue_chunk_after_data_is_not_forwarded);
+  RUN_TEST(test_no_cue_chunk_calls_no_cue_hooks);
   return UNITY_END();
 }

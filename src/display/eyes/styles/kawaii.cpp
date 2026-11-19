@@ -18,6 +18,7 @@
 #include "display/eyes/styles/kawaii/face.h"
 #include "display/eyes/styles/kawaii/lines.h"
 #include "display/eyes/styles/kawaii/director.h"
+#include "display/eyes/cue.h"
 #include "display/eyes/styles/kawaii/speech.h"
 #include "display/eyes/styles/kawaii/tracker.h"
 #include "display/oled.h"
@@ -392,12 +393,19 @@ void drawKawaii(
     g_calmSinceMs = now;
   }
 
-  const kawaii::Mood mood = currentMood(mode, animation, modeStartedMs, now, sleepPhase);
+  kawaii::Mood mood = currentMood(mode, animation, modeStartedMs, now, sleepPhase);
+  uint8_t cuedMood = 0;
+  const bool cued = mood != kawaii::Mood::Asleep && mode != EyeMode::Ring &&
+    eyesCueMoodActive(now, cuedMood) && cuedMood < static_cast<uint8_t>(kawaii::Mood::Count);
+  if (cued) {
+    mood = static_cast<kawaii::Mood>(cuedMood);
+  }
   const bool ringing = mode == EyeMode::Ring && mood != kawaii::Mood::Asleep;
   kawaii::Expression target =
     ringing ? ringFace(modeStartedMs, now) : kawaii::expressionFor(mood);
   g_ringing = ringing;
-  if (mood == kawaii::Mood::Talking) {
+  // The mouth keeps saying a streamed clip whatever mood a voice cue sets.
+  if (mood == kawaii::Mood::Talking || (cued && mode == EyeMode::Talking)) {
     kawaii::applyVoice(target, currentVoice(now));
   }
   const SpokenClip* clip = mood == kawaii::Mood::Asleep ? nullptr : spokenClipFor(mode);

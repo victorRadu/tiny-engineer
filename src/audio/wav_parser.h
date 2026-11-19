@@ -3,6 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 
+// Chunk ID of the voice cue list (see audio/stream_cues.h).
+constexpr char kCueChunkId[4] = {'t', 'e', 'c', 'u'};
+
 // Incremental RIFF/WAVE reader for bodies that arrive in arbitrary slices.
 // Accepts 16-bit mono PCM at one sample rate and hands samples to a sink as
 // soon as they are complete; nothing beyond one small batch is buffered.
@@ -11,6 +14,14 @@ public:
   class Sink {
   public:
     virtual void onPcm(const int16_t* samples, size_t count) = 0;
+    // The `tecu` (voice cue) chunk, forwarded when it comes before `data`.
+    // `size` is the declared size; data may arrive in any slices.
+    virtual void onChunkBegin(uint32_t size) { (void)size; }
+    virtual void onChunkData(const uint8_t* bytes, size_t length) {
+      (void)bytes;
+      (void)length;
+    }
+    virtual void onChunkEnd() {}
 
   protected:
     ~Sink() = default;
@@ -33,6 +44,7 @@ private:
     ChunkHeader,
     Format,
     Skip,
+    Forward,
     Pcm,
     Trailer,
     Failed
